@@ -23,17 +23,12 @@ import {
   DownloadOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
-import {
-  transcribe,
-  canUseWhisperWeb,
-  resampleTo16Khz,
-  downloadWhisperModel,
-} from '@remotion/whisper-web';
 import logoImg from '@/assets/logo.svg';
 import avatarOne from '@/assets/32.jpg';
 import avatarTwo from '@/assets/44.jpg';
 import avatarThree from '@/assets/68.jpg';
 
+const DEEPGRAM_API_KEY = '656f980aab3a728f113a1fa10c3ba654f33a5059';
 const COHERE_API_KEY = 'GnCyJEnLyES8rznrgN1j3KvSFTIjpKP1VhghxeNO';
 
 const summarizeCohere = async (text: string): Promise<string | null> => {
@@ -54,8 +49,8 @@ ${text}`;
       text: prompt,
       length: 'long',
       format: 'bullets',
+      extractiveness: 'low',
       model: 'summarize-xlarge',
-      extractiveness: 'auto',
     }),
   });
 
@@ -103,10 +98,12 @@ export const Home = () => {
     accept: 'audio/*',
     beforeUpload: (file: File) => {
       setFile(file);
+      setSummary('');
       return false;
     },
     onRemove: () => {
       setFile(null);
+      setSummary('');
     },
     disabled: isProcessing,
     fileList: [],
@@ -118,60 +115,69 @@ export const Home = () => {
       return;
     }
 
-    if (file.size > 25 * 1024 * 1024) {
-      message.error(
-        'Audio file is too large. Please upload a file smaller than 25MB.'
-      );
-      return;
-    }
+    setSummary('');
 
     setIsProcessing(true);
-    setProgress(0);
 
-    const modelToUse = 'base';
+    const smoothProgress = (from: number, to: number, duration: number) => {
+      return new Promise<void>(resolve => {
+        const startTime = Date.now();
+        const step = () => {
+          const elapsed = Date.now() - startTime;
+          const progressValue = Math.min(
+            from + ((to - from) * elapsed) / duration,
+            to
+          );
+          setProgress(progressValue);
+
+          if (elapsed < duration) {
+            requestAnimationFrame(step);
+          } else {
+            resolve();
+          }
+        };
+        step();
+      });
+    };
 
     try {
-      const { supported, detailedReason } = await canUseWhisperWeb(modelToUse);
-      if (!supported) {
-        throw new Error(`Whisper Web is not supported: ${detailedReason}`);
+      await smoothProgress(0, 10, 1000);
+
+      const audioBuffer = await file.arrayBuffer();
+
+      await smoothProgress(10, 30, 1000);
+
+      const res = await fetch(
+        'https://api.deepgram.com/v1/listen?smart_format=true',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Token ${DEEPGRAM_API_KEY}`,
+            'Content-Type': file.type || 'audio/mp3',
+          },
+          body: audioBuffer,
+        }
+      );
+
+      const json = await res.json();
+      const transcriptText =
+        json?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+
+      if (!transcriptText) {
+        throw new Error('Transcription failed or is empty');
       }
 
-      await downloadWhisperModel({
-        model: modelToUse,
-        onProgress: ({ progress }) => {
-          setProgress(Math.round(progress * 30));
-        },
-      });
+      await smoothProgress(30, 70, 1000);
 
-      const channelWaveform = await resampleTo16Khz({
-        file,
-        onProgress: p => {
-          setProgress(30 + Math.round(p * 30));
-        },
-      });
+      const summary = await summarizeText(transcriptText);
 
-      const { transcription } = await transcribe({
-        channelWaveform,
-        model: modelToUse,
-        onProgress: p => {
-          setProgress(60 + Math.round(p * 30));
-        },
-      });
+      setSummary(summary || 'Processing failed.');
 
-      const fullText = transcription.map(t => t.text).join(' ');
-
-      setProgress(91);
-
-      const summaryText = await summarizeText(fullText);
-
-      setSummary(summaryText || fullText);
-      setProgress(100);
+      await smoothProgress(70, 100, 1000);
     } catch (err) {
       console.error(err);
-      message.error('Transcription or summarization failed.');
-      setSummary(
-        'Transcription failed or summarization could not be generated.'
-      );
+      message.error('Processing failed.');
+      setSummary('An error occurred.');
     } finally {
       setIsProcessing(false);
     }
