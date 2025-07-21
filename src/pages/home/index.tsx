@@ -240,7 +240,7 @@ export const Home = () => {
           >
             <div className="flex gap-1 items-center justify-center mr-1">
               <img src={logoImg} alt="" className="w-10" />
-              Briefly
+              Brieflyzer
             </div>
 
             <span className="text-xl md:text-2xl text-gray-600">
