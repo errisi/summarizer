@@ -6,12 +6,12 @@ html,
 body {
   margin: 0;
   padding: 0;
-  font-family: 'SF Pro Text' !important;
+  font-family: 'SF Pro Text', sans-serif !important;
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
-  font-family: 'SF Pro Text' !important;
+  font-family: 'SF Pro Text', sans-serif !important;
 }

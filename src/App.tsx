@@ -9,15 +9,7 @@ export const App = () => {
         <Router>
           <Routes>
             {routesArray.map(({ path, Component }) => (
-              <Route
-                key={path}
-                path={path}
-                element={
-                  // <PrivateRoute excludedRoutes={[]}>
-                  <Component />
-                  // </PrivateRoute>
-                }
-              />
+              <Route key={path} path={path} element={<Component />} />
             ))}
 
             <Route path="*" element={<div>Not found</div>} />
