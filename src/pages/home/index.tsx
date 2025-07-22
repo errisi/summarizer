@@ -22,6 +22,7 @@ import {
   CopyOutlined,
   DownloadOutlined,
   ClockCircleOutlined,
+  LinkOutlined,
 } from '@ant-design/icons';
 import logoImg from '@/assets/logo.svg';
 import avatarOne from '@/assets/32.jpg';
@@ -109,6 +110,27 @@ export const Home = () => {
     fileList: [],
   };
 
+  const smoothProgress = (from: number, to: number, duration: number) => {
+    return new Promise<void>(resolve => {
+      const startTime = Date.now();
+      const step = () => {
+        const elapsed = Date.now() - startTime;
+        const progressValue = Math.min(
+          from + ((to - from) * elapsed) / duration,
+          to
+        );
+        setProgress(progressValue);
+
+        if (elapsed < duration) {
+          requestAnimationFrame(step);
+        } else {
+          resolve();
+        }
+      };
+      step();
+    });
+  };
+
   const processAudio = async () => {
     if (!file) {
       message.error('Please upload an audio file first!');
@@ -118,27 +140,6 @@ export const Home = () => {
     setSummary('');
 
     setIsProcessing(true);
-
-    const smoothProgress = (from: number, to: number, duration: number) => {
-      return new Promise<void>(resolve => {
-        const startTime = Date.now();
-        const step = () => {
-          const elapsed = Date.now() - startTime;
-          const progressValue = Math.min(
-            from + ((to - from) * elapsed) / duration,
-            to
-          );
-          setProgress(progressValue);
-
-          if (elapsed < duration) {
-            requestAnimationFrame(step);
-          } else {
-            resolve();
-          }
-        };
-        step();
-      });
-    };
 
     try {
       await smoothProgress(0, 10, 1000);
@@ -197,6 +198,98 @@ export const Home = () => {
     link.click();
     document.body.removeChild(link);
     message.success('Summary downloaded!');
+  };
+
+  const extractYouTubeID = (url: string): string | null => {
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})/);
+    return m ? m[1] : null;
+  };
+
+  const downloadMP3FromYouTube = async (
+    videoId: string
+  ): Promise<Blob | null> => {
+    const res = await fetch(
+      `https://youtube-mp36.p.rapidapi.com/dl?id=${videoId}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-RapidAPI-Key':
+            '2e7fd4c264mshf8d0b5658a7391cp1720eajsn095870adb7c3',
+          'X-RapidAPI-Host': 'youtube-mp36.p.rapidapi.com',
+        },
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.status === 'processing') {
+      await new Promise(r => setTimeout(r, 1000));
+      return await downloadMP3FromYouTube(videoId);
+    }
+
+    if (data.status === 'ok' && data.link) {
+      const audioRes = await fetch(data.link);
+      if (!audioRes.ok) throw new Error('Failed to fetch audio file');
+      return await audioRes.blob();
+    }
+
+    console.warn('MP3 API error:', data.msg || data);
+    return null;
+  };
+
+  const processYouTube = async (url: string) => {
+    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+      message.error('Please enter a valid YouTube link.');
+      return;
+    }
+
+    const videoId = extractYouTubeID(url);
+    if (!videoId) {
+      message.error('Unable to parse video ID.');
+      return;
+    }
+
+    setSummary('');
+    setIsProcessing(true);
+
+    try {
+      await smoothProgress(0, 10, 800);
+
+      const audioBlob = await downloadMP3FromYouTube(videoId);
+      if (!audioBlob) throw new Error('Failed to download audio');
+
+      await smoothProgress(10, 30, 800);
+
+      const buffer = await audioBlob.arrayBuffer();
+
+      const dgRes = await fetch(
+        'https://api.deepgram.com/v1/listen?smart_format=true',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Token ${DEEPGRAM_API_KEY}`,
+            'Content-Type': 'audio/mp3',
+          },
+          body: buffer,
+        }
+      );
+      const dgJson = await dgRes.json();
+      const transcript =
+        dgJson?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+      if (!transcript) throw new Error('Deepgram returned no transcript');
+
+      await smoothProgress(30, 70, 1000);
+
+      const summaryText = await summarizeText(transcript);
+      setSummary(summaryText || 'Processing failed.');
+      await smoothProgress(70, 100, 600);
+    } catch (err) {
+      console.error(err);
+      message.error('Failed to process YouTube video.');
+      setSummary('An error occurred.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const testimonials = [
@@ -311,7 +404,25 @@ export const Home = () => {
                 </Button>
               </div>
             </Card>
-
+            <div className="font-bold mt-2">OR</div>
+            <Card
+              className="mt-2"
+              title={
+                <span className="flex items-center">
+                  <LinkOutlined className="mr-2 text-blue-500" />
+                  Paste a YouTube URL
+                </span>
+              }
+            >
+              <Input.Search
+                enterButton="Summarize"
+                placeholder="Paste a YouTube URL"
+                allowClear
+                size="large"
+                disabled={isProcessing}
+                onSearch={processYouTube}
+              />
+            </Card>
             {isProcessing && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
