@@ -404,7 +404,7 @@ export const Home = () => {
                 </Button>
               </div>
             </Card>
-            <div className="font-bold mt-2">OR</div>
+            <div className="font-bold mt-2 text-center">OR</div>
             <Card
               className="mt-2"
               title={
